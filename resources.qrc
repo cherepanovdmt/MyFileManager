@@ -1,0 +1,38 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file>icons/7A63_EXCEL.0.png</file>
+        <file>icons/7zipa.png</file>
+        <file>icons/AdobeAudition.png</file>
+        <file>icons/AdobeBridge.png</file>
+        <file>icons/AdobeDreamweaver.png</file>
+        <file>icons/AdobeEncore.png</file>
+        <file>icons/AdobeFirework.png</file>
+        <file>icons/AdobeFlash.png</file>
+        <file>icons/AdobeFlashBuilder.png</file>
+        <file>icons/Adobeillustrator.png</file>
+        <file>icons/AdobeIndesign.png</file>
+        <file>icons/AdobeLightroom.png</file>
+        <file>icons/AdobePhotoshop.png</file>
+        <file>icons/AdobePrelude.png</file>
+        <file>icons/AdobePremierePro.png</file>
+        <file>icons/chrome-browser.png</file>
+        <file>icons/desktop.png</file>
+        <file>icons/drive.png</file>
+        <file>icons/drive-active.png</file>
+        <file>icons/drive-optical.png</file>
+        <file>icons/drive-usb.png</file>
+        <file>icons/EXCEL.png</file>
+        <file>icons/firefox.png</file>
+        <file>icons/firefox-trunk.png</file>
+        <file>icons/floppy.png</file>
+        <file>icons/folder.png</file>
+        <file>icons/folder_download.png</file>
+        <file>icons/folder_home.png</file>
+        <file>icons/folder_open.png</file>
+        <file>icons/gimp.png</file>
+        <file>icons/py.png</file>
+        <file>icons/spoty.png</file>
+        <file>icons/term.png</file>
+        <file>icons/WINWORD.png</file>
+    </qresource>
+</RCC>
