@@ -22,14 +22,16 @@
 #include <QMimeData>
 #include <QUrl>
 #include <QInputDialog>
-
+#include <Theme.h>
 
 FilePane::FilePane(QFileSystemModel *model, QWidget *parent)
     : QFrame(parent), m_model(model)
 {
     setObjectName("FilePaneCard");
     setFrameShape(QFrame::NoFrame);
-    updateCardStyle();
+    setAttribute(Qt::WA_TranslucentBackground);
+    setStyleSheet("#FilePaneCard { background: transparent; border: none; }");
+
 
     QVBoxLayout *layout = new QVBoxLayout(this);
     layout->setContentsMargins(6, 6, 6, 6);
@@ -40,18 +42,13 @@ FilePane::FilePane(QFileSystemModel *model, QWidget *parent)
     // ==========================================
     m_headerBar = new QWidget(this);
     m_headerBar->setObjectName("PaneHeaderBar");
-    m_headerBar->setFixedHeight(28);
-    m_headerBar->setStyleSheet(
-        "#PaneHeaderBar {"
-        "  background-color: #EAE8E1;"
-        "  border-radius: 7px;"
-        "}"
-    );
+    m_headerBar->setFixedHeight(34);
+    m_headerBar->setStyleSheet("#PaneHeaderBar { background: transparent; border: none; }");
     m_headerBar->installEventFilter(this);
 
     QHBoxLayout *headerLayout = new QHBoxLayout(m_headerBar);
-    headerLayout->setContentsMargins(8, 0, 6, 0);
-    headerLayout->setSpacing(4);
+    headerLayout->setContentsMargins(8, 12, 8, 0);
+    headerLayout->setSpacing(4); //она задаёт расстояние в 4 пикселя между невидимым спейсером слева
 
     // Невидимый спейсер слева такой же ширины, как кнопка закрытия справа,
     // чтобы заголовок папки стоял строго по центру карточки до пикселя
@@ -270,24 +267,9 @@ void FilePane::setClosable(bool closable)
 
 void FilePane::updateCardStyle()
 {
-    if (m_isActive) {
-        setStyleSheet(
-            "#FilePaneCard {"
-            "  background-color: #F4F3EF;"
-            "  border: 2px solid #5B9BD5;"
-            "  border-radius: 12px;"
-            "}"
-        );
-    } else {
-        setStyleSheet(
-            "#FilePaneCard {"
-            "  background-color: #F4F3EF;"
-            "  border: 1px solid rgba(255, 255, 255, 160);"
-            "  border-radius: 12px;"
-            "}"
-        );
-    }
+    update();
 }
+
 
 void FilePane::highlightMatches(const QString &query)
 {
@@ -488,7 +470,27 @@ bool FilePane::eventFilter(QObject *watched, QEvent *event)
                 }
                 return QFrame::eventFilter(watched, event);
                 }
-                void FilePane::performFileDrop(const QList<QUrl> &urls, const QString &targetDir, bool isCopy)
+
+void FilePane::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    QRectF cardRect = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+    QPainterPath path;
+    path.addRoundedRect(cardRect, Theme::kCardRadius, Theme::kCardRadius);
+
+    p.fillPath(path, Theme::surfaceColor());
+
+    if (m_isActive) {
+        p.setPen(QPen(QColor(255, 255, 255, 170), 1.2));
+    } else {
+        p.setPen(QPen(QColor(0, 0, 0, 35), 1.0));
+    }
+    p.drawPath(path);
+}
+
+void FilePane::performFileDrop(const QList<QUrl> &urls, const QString &targetDir, bool isCopy)
                 {
                 QDir destDir(targetDir);
                 if (!destDir.exists()) return;

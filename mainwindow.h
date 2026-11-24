@@ -1,6 +1,6 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
-#include "topglassbar.h"
+
 #include <QMainWindow>
 #include <QFileSystemModel>
 #include <QList>
@@ -9,6 +9,7 @@
 #include <QGridLayout>
 #include <QLineEdit>
 #include "filepane.h"
+#include "topglassbar.h"
 
 class ThumbnailIconProvider;
 
@@ -64,6 +65,7 @@ private:
     void setActivePane(FilePane *pane);
     void removePane(FilePane *pane);
     void equalizePaneSizes();
+    void layoutPanesAnimated(bool animate = true);
     void openPathInActivePane(const QString &path);
     void syncTreeWithPath(const QString &path);
     void showPaneContextMenu(FilePane *pane, const QPoint &pos);
@@ -86,24 +88,35 @@ private:
     void applyPersistentView(FilePane::ViewMode mode, int iconSize);
 
     TopGlassBar *topGlassBar = nullptr;
+    QWidget *bottomGlassBar = nullptr;
     QMenu *viewMenu = nullptr;
     void setupTopGlassBar();
+    void setupBottomGlassBar();
 
+    // Левый бар (Bookmarks + линия 160px + Mounted devices + дерево)
+    QWidget *leftSidebarCard = nullptr;
+    QWidget *leftBookmarksSection = nullptr;
+    QVBoxLayout *leftBookmarksListLayout = nullptr;
+    void setupLeftSidebar();
+    void rebuildLeftBookmarks();
+
+    // Хлебные крошки
     QWidget *breadcrumbContainer = nullptr;
     QHBoxLayout *breadcrumbLayout = nullptr;
     QLineEdit *manualPathEdit = nullptr;
     void setupBreadcrumbs();
     void updateBreadcrumbs(const QString &path);
 
+    // Правая рабочая область
     QWidget *rightAreaContainer = nullptr;
     QVBoxLayout *rightAreaLayout = nullptr;
-    QHBoxLayout *panesRowLayout = nullptr;
+    QWidget *panesHolder = nullptr;
     QWidget *bookmarksBoard = nullptr;
     QGridLayout *bookmarksGrid = nullptr;
 
     void setupBookmarksBoard();
     void rebuildBookmarksBoard();
-    void updateWorkspaceState();
+    void updateWorkspaceState(bool animatePanes = false);
 };
 
 #endif // MAINWINDOW_H

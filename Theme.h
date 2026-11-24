@@ -6,32 +6,41 @@
 
 namespace Theme {
 
-// Размеры и отступы интерфейса (строго по SVG-макету)
-constexpr int kTopBarHeight = 28;
-constexpr int kWinBtnWidth = 28;
-constexpr int kWinBtnHeight = 22;
-constexpr int kOuterMargin = 8;
-constexpr int kPaneSpacing = 8;
-constexpr int kResizeBorder = 6;
-constexpr int kDefaultTreeWidth = 230;
+// Точные размеры и отступы из ТЗ (1 в 1)
+constexpr int kTopBarHeight = 38;
+constexpr int kBottomBarHeight = 38;
+constexpr int kWinBtnWidth = 34;
+constexpr int kWinBtnHeight = 28;
 
-// Размеры и тайминги анимации отрыва карточек
+constexpr int kOuterMargin = 8;         // Ровно 8px по всем краям и между блоками
+constexpr int kPaneSpacing = 8;         // Ровно 8px между папками
+constexpr int kCrumbSpacing = 4;        // Ровно 4px между хлебными крошками
+constexpr int kCardRadius = 12;         // Радиус скругления 12px везде
+constexpr int kBreadcrumbHeight = 32;
+constexpr int kResizeBorder = 6;
+constexpr int kDefaultTreeWidth = 220;
+
+// Отступы внутри левого бара
+constexpr int kLeftBarPadding = 16;
+constexpr int kLeftDividerWidth = 160;
+
+// Тайминги и размеры анимаций
 constexpr int kDragThresholdPx = 24;
 constexpr int kGhostCardWidth = 240;
 constexpr int kGhostCardHeight = 175;
 constexpr int kGhostShadowPad = 20;
-constexpr int kShrinkAnimMs = 150;
-constexpr int kExpandAnimMs = 220;
+constexpr int kReflowAnimMs = 180;      // Плавное заполнение оставшихся папок
+constexpr int kExpandAnimMs = 150;
 
-// Цвета стекла и карточек
-inline QColor windowGlassTint() { return QColor(42, 46, 44, 145); }
-inline QColor windowOuterBorder() { return QColor(0, 0, 0, 75); }
-inline QString paneCardBg() { return QStringLiteral("#F4F3EF"); }
-inline QString paneHeaderBg() { return QStringLiteral("#EAE8E1"); }
-inline QString accentBlue() { return QStringLiteral("#007AFF"); }
+// Цвета Figma (#B8B8B8 @ 90%, #0F0F0F @ 21%, #D9D9D9 @ 50%, #000000 @ 35%)
+inline QColor windowUnderlayColor() { return QColor(15, 15, 15, 54); }      // #0F0F0F 21%
+inline QColor surfaceColor()        { return QColor(184, 184, 184, 230); }  // #B8B8B8 90%
+inline QColor searchColor()         { return QColor(217, 217, 217, 128); }  // #D9D9D9 50%
+inline QColor watermarkColor()      { return QColor(0, 0, 0, 89); }         // #000000 35%
 
-// Кроссплатформенный стек шрифтов (Windows + Linux + macOS)
-inline QString fontFamily() { return QStringLiteral("'Segoe UI', 'Inter', 'Ubuntu', 'Noto Sans', sans-serif"); }
+inline QString surfaceCss()         { return QStringLiteral("rgba(184, 184, 184, 230)"); }
+inline QString searchCss()          { return QStringLiteral("rgba(217, 217, 217, 128)"); }
+inline QString fontFamily()         { return QStringLiteral("'Segoe UI', 'Inter', 'Ubuntu', 'Noto Sans', sans-serif"); }
 
 } // namespace Theme
 

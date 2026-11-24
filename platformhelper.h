@@ -6,6 +6,7 @@
 #include <cstdint>
 
 namespace PlatformHelper {
+void openSystemSettings();
 
 // Включает размытие/прозрачность стекла на Windows и безопасно компилируется на Linux
 void enableGlassBlur(QWidget *window, std::uint32_t winAbgrTint = 0x18252926);

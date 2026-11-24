@@ -27,6 +27,7 @@ public:
 protected:
     void paintEvent(QPaintEvent *event) override;
 
+
 private:
     QString m_title;
     QPropertyAnimation *m_anim = nullptr;
@@ -78,6 +79,7 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
 
 private:
     QWidget *m_headerBar;

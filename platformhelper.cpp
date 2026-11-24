@@ -4,9 +4,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QWindow>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QProcess>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <shellapi.h>
+
 namespace {
 enum ACCENT_STATE {
     ACCENT_DISABLED = 0,
@@ -34,6 +38,21 @@ using pfnSetWindowCompositionAttribute = BOOL(WINAPI *)(HWND, WINDOWCOMPOSITIONA
 #endif
 
 namespace PlatformHelper {
+void openSystemSettings()
+{
+#ifdef Q_OS_WIN
+    QDesktopServices::openUrl(QUrl("ms-settings:"));
+#elif defined(Q_OS_LINUX)
+    if (!QProcess::startDetached("gnome-control-center", {})) {
+        if (!QProcess::startDetached("systemsettings", {})) {
+            if (!QProcess::startDetached("systemsettings5", {})) {
+                QProcess::startDetached("xfce4-settings-manager", {});
+            }
+        }
+    }
+#endif
+}
+
 
 void enableGlassBlur(QWidget *window, std::uint32_t winAbgrTint)
 {
