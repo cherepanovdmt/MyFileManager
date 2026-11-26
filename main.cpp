@@ -1,10 +1,30 @@
 #include "mainwindow.h"
 #include <QApplication>
+#include <QScreen>
+#include <private/qabstractanimation_p.h>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <mmsystem.h>
+
+#endif
 
 int main(int argc, char *argv[])
 {
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
     QApplication a(argc, argv);
+    int refreshHz = 60;
+    if (QScreen *scr = QGuiApplication::primaryScreen()) {
+        refreshHz = qRound(scr->refreshRate());
+    }
+    // Для 200 Гц -> 5 мс (200 FPS), для 144 Гц -> 7 мс, для 60 Гц -> 16 мс
+    int frameIntervalMs = qBound(4, qRound(1000.0 / qMax(60, refreshHz)), 16);
+    QUnifiedTimer::instance()->setTimingInterval(frameIntervalMs);
+
+
+#ifdef Q_OS_WIN
+    timeBeginPeriod(1);
+#endif
+
     a.setStyleSheet(
         /* Вертикальный скроллбар */
         "QScrollBar:vertical {"
@@ -59,5 +79,11 @@ int main(int argc, char *argv[])
 
     MainWindow w;
     w.show();
-    return a.exec();
+    int res = a.exec();
+
+#ifdef Q_OS_WIN
+    timeEndPeriod(1);
+#endif
+
+    return res;
 }

@@ -23,7 +23,8 @@
 #include <QUrl>
 #include <QInputDialog>
 #include <Theme.h>
-
+#include <QVariantAnimation>
+#include <QSet>
 FilePane::FilePane(QFileSystemModel *model, QWidget *parent)
     : QFrame(parent), m_model(model)
 {
@@ -398,13 +399,32 @@ bool FilePane::eventFilter(QObject *watched, QEvent *event)
                 auto me = static_cast<QMouseEvent*>(event);
                 if (m_isDraggingFile && (me->buttons() & Qt::LeftButton)) {
                 if ((me->globalPos() - m_dragStartPos).manhattanLength() >= QApplication::startDragDistance()) {
-                m_isDraggingFile = false;
-                QMimeData *mimeData = new QMimeData;
-                mimeData->setUrls({ QUrl::fromLocalFile(m_draggedFilePath) });
-                QDrag *drag = new QDrag(this);
-                drag->setMimeData(mimeData);
-                drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::MoveAction);
-                return true;
+                    m_isDraggingFile = false;
+
+                    QList<QUrl> urls;
+                    QSet<QString> uniquePaths;
+                    if (view->selectionModel()) {
+                        for (const QModelIndex &sIdx : view->selectionModel()->selectedIndexes()) {
+                            if (sIdx.column() != 0) continue;
+                            QString p = m_model->filePath(sIdx);
+                            if (!p.isEmpty() && !uniquePaths.contains(p)) {
+                                uniquePaths.insert(p);
+                                urls.append(QUrl::fromLocalFile(p));
+                            }
+                        }
+                    }
+                    if (urls.isEmpty() && !m_draggedFilePath.isEmpty()) {
+                        urls.append(QUrl::fromLocalFile(m_draggedFilePath));
+                    }
+                    if (urls.isEmpty()) return true;
+
+                    QMimeData *mimeData = new QMimeData;
+                    mimeData->setUrls(urls);
+                    QDrag *drag = new QDrag(this);
+                    drag->setMimeData(mimeData);
+                    drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
+                    drag->deleteLater();
+                    return true;
                 }
                 } else if (m_isDraggingPane) {
                 updatePaneDrag(me->globalPos());
@@ -470,6 +490,24 @@ bool FilePane::eventFilter(QObject *watched, QEvent *event)
                 }
                 return QFrame::eventFilter(watched, event);
                 }
+void FilePane::setContentFrozen(bool frozen)
+{
+    Q_UNUSED(frozen);
+    if (m_iconView) {
+            m_iconView->setResizeMode(frozen ? QListView::Fixed : QListView::Adjust);
+            if (!frozen) {
+                m_iconView->doItemsLayout();
+            }
+        }
+    if (m_tableView) {
+        m_tableView->setUpdatesEnabled(true);
+        m_tableView->viewport()->update();
+    }
+    if (m_iconView) {
+        m_iconView->setUpdatesEnabled(true);
+        m_iconView->viewport()->update();
+    }
+}
 
 void FilePane::paintEvent(QPaintEvent *)
 {
@@ -584,8 +622,10 @@ void FilePane::performFileDrop(const QList<QUrl> &urls, const QString &targetDir
                 }
                 FloatingPaneGhost::FloatingPaneGhost(const QString &folderTitle, const QRect &startRect, const QPoint &cursorPos)
                     : QWidget(nullptr, Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint),
-                      m_title(folderTitle)
+                      m_title(folderTitle),
+                      m_folderIcon(":/icons/icons/folder.png")
                 {
+                    Q_UNUSED(startRect);
                     setAttribute(Qt::WA_TranslucentBackground);
                     setAttribute(Qt::WA_ShowWithoutActivating);
 
@@ -594,109 +634,82 @@ void FilePane::performFileDrop(const QList<QUrl> &urls, const QString &targetDir
                     const int pad = 20;
 
                     m_anchorOffset = QPoint(targetW / 2 + pad, 18 + pad);
-
-                    QRect initialGeo = startRect.adjusted(-pad, -pad, pad, pad);
-                    QRect targetGeo(cursorPos - m_anchorOffset, QSize(targetW + pad * 2, targetH + pad * 2));
-
-                    setGeometry(initialGeo);
+                    setFixedSize(targetW + pad * 2, targetH + pad * 2);
+                    move(cursorPos - m_anchorOffset);
                     show();
 
-                    m_anim = new QPropertyAnimation(this, "geometry", this);
-                    m_anim->setDuration(150);
-                    m_anim->setStartValue(initialGeo);
-                    m_anim->setEndValue(targetGeo);
-                    m_anim->setEasingCurve(QEasingCurve::OutCubic);
-
-                    connect(m_anim, &QPropertyAnimation::finished, this, [this]() {
-                        m_animFinished = true;
+                    auto *anim = new QVariantAnimation(this);
+                    anim->setDuration(130);
+                    anim->setStartValue(0.0);
+                    anim->setEndValue(1.0);
+                    anim->setEasingCurve(QEasingCurve::OutCubic);
+                    connect(anim, &QVariantAnimation::valueChanged, this, [this](const QVariant &v) {
+                        m_progress = v.toReal();
+                        update();
                     });
-
-                    m_anim->start(QAbstractAnimation::DeleteWhenStopped);
+                    anim->start(QAbstractAnimation::DeleteWhenStopped);
                 }
 
                 void FloatingPaneGhost::updateCursorPos(const QPoint &cursorPos)
                 {
-                    QPoint topLeft = cursorPos - m_anchorOffset;
-                    if (!m_animFinished && m_anim && m_anim->state() == QAbstractAnimation::Running) {
-                        QRect endRect = m_anim->endValue().toRect();
-                        endRect.moveTopLeft(topLeft);
-                        m_anim->setEndValue(endRect);
-                    } else {
-                        move(topLeft);
-                    }
-                    update();
+                    move(cursorPos - m_anchorOffset);
                 }
 
-                void FloatingPaneGhost::setDockHighlight(bool canDock)
-                {
-                    if (m_canDock != canDock) {
-                        m_canDock = canDock;
-                        update();
-                    }
-                }
 
                 QRect FloatingPaneGhost::currentCardRect() const
                 {
-                    return geometry().adjusted(20, 20, -20, -20);
+                    const int inset = qRound((1.0 - m_progress) * 14);
+                    const QRect localCard = rect().adjusted(20 - inset, 20 - inset, -20 + inset, -20 + inset);
+                    return QRect(mapToGlobal(localCard.topLeft()), localCard.size());
                 }
 
                 void FloatingPaneGhost::paintEvent(QPaintEvent *)
                 {
+                    const int inset = qRound((1.0 - m_progress) * 14);
                     QPainter p(this);
                     p.setRenderHint(QPainter::Antialiasing, true);
 
-                    QRect cardRect = rect().adjusted(20, 20, -20, -20);
+                    const QRect cardRect = rect().adjusted(20 - inset, 20 - inset, -20 + inset, -20 + inset);
 
-                    // 1. Мягкая тень под карточкой
-                    for (int i = 5; i >= 1; --i) {
+                    for (int i = 4; i >= 1; --i) {
                         QPainterPath shadowPath;
-                        shadowPath.addRoundedRect(cardRect.adjusted(-i, -i + 3, i, i + 3), 12 + i, 12 + i);
+                        shadowPath.addRoundedRect(cardRect.adjusted(-i * 1.5, -i * 0.5, i * 1.5, i * 2.5), 12 + i, 12 + i);
                         p.fillPath(shadowPath, QColor(0, 0, 0, 14 - i * 2));
                     }
 
-                    // 2. Молочный фон карточки (#F4F3EF)
                     QPainterPath cardPath;
-                    cardPath.addRoundedRect(cardRect, 12, 12);
-                    p.fillPath(cardPath, QColor("#F4F3EF"));
+                    cardPath.addRoundedRect(cardRect, Theme::kCardRadius, Theme::kCardRadius);
+                    p.fillPath(cardPath, Theme::surfaceColor());
 
-                    // 3. Концентрическая шапка внутри (#EAE8E1) + заголовок и крестик ×
-                    QRect headerRect(cardRect.left() + 6, cardRect.top() + 6, cardRect.width() - 12, 26);
                     QPainterPath headerPath;
-                    headerPath.addRoundedRect(headerRect, 7, 7);
-                    p.fillPath(headerPath, QColor("#EAE8E1"));
+                    headerPath.addRoundedRect(QRect(cardRect.left(), cardRect.top(), cardRect.width(), 36), Theme::kCardRadius, Theme::kCardRadius);
+                    p.fillPath(headerPath.intersected(cardPath), QColor(255, 255, 255, 50));
 
-                    p.setPen(QColor("#2C2C2E"));
-                    QFont titleFont("Segoe UI", 9, QFont::Medium);
-                    p.setFont(titleFont);
-                    p.drawText(headerRect.adjusted(22, 0, -22, 0), Qt::AlignCenter, m_title);
+                    p.setPen(QColor("#1C1C1E"));
+                    p.setFont(QFont("Segoe UI", 9, QFont::Medium));
+                    p.drawText(QRect(cardRect.left() + 12, cardRect.top() + 8, cardRect.width() - 24, 20), Qt::AlignCenter, m_title);
 
-                    p.setPen(QColor("#555555"));
-                    QFont closeFont("Segoe UI", 10, QFont::Bold);
-                    p.setFont(closeFont);
-                    p.drawText(QRect(headerRect.right() - 22, headerRect.top(), 20, headerRect.height()), Qt::AlignCenter, "×");
-
-                    // 4. Аккуратная иконка папки по центру карточки (без сплющивания!)
-                    QPixmap folderIcon(":/icons/icons/folder.png");
-                    if (!folderIcon.isNull()) {
-                        int iconSize = 48;
-                        QRect iconRect(
+                    if (!m_folderIcon.isNull()) {
+                        const int iconSize = 44;
+                        const QRect iconRect(
                             cardRect.center().x() - iconSize / 2,
-                            headerRect.bottom() + (cardRect.bottom() - headerRect.bottom() - iconSize) / 2,
+                            cardRect.top() + 36 + (cardRect.height() - 36 - iconSize) / 2,
                             iconSize,
                             iconSize
                         );
                         p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-                        p.drawPixmap(iconRect, folderIcon);
+                        p.drawPixmap(iconRect, m_folderIcon);
                     }
+                }
 
                     // 5. Тонкая контурная рамка
-                    if (m_canDock) {
-                        p.setPen(QPen(QColor("#007AFF"), 2));
-                    } else {
-                        p.setPen(QPen(QColor(0, 0, 0, 50), 1));
-                    }
-                    p.drawRoundedRect(cardRect, 12, 12);
-                }
+//                    if (m_canDock) {
+//                        p.setPen(QPen(QColor("#007AFF"), 2));
+//                    } else {
+//                        p.setPen(QPen(QColor(0, 0, 0, 50), 1));
+//                    }
+//                    p.drawRoundedRect(cardRect, 12, 12);
+//                }
 
                 void FilePane::startPaneDrag(const QPoint &globalPos)
                 {
@@ -737,7 +750,6 @@ void FilePane::performFileDrop(const QList<QUrl> &urls, const QString &targetDir
                                 }
                             }
                         }
-                        m_ghost->setDockHighlight(overTargetWindow);
                     }
                 }
 
@@ -747,21 +759,24 @@ void FilePane::performFileDrop(const QList<QUrl> &urls, const QString &targetDir
                     m_isDraggingPane = false;
                     setCursor(Qt::ArrowCursor);
                     setWindowOpacity(1.0);
+
                     if (!m_ghostSpawned || !m_ghost) {
                         m_ghostSpawned = false;
                         return;
                     }
-                    QRect finalGhostRect = m_ghost->currentCardRect();
+
+                    const QRect finalGhostRect = m_ghost->currentCardRect();
                     m_ghost->hide();
                     m_ghost->deleteLater();
                     m_ghost = nullptr;
                     m_ghostSpawned = false;
                     m_isDetached = false;
-                    emit paneDragStateChanged(this, false);
+
                     if (m_dragEmitted) return;
                     m_dragEmitted = true;
                     emit paneDraggedOut(this, globalPos, finalGhostRect);
                 }
+
                 // ==========================================
                 // Системный буфер обмена (Ctrl+C / Ctrl+X / Ctrl+V) и переименование (F2)
                 // ==========================================

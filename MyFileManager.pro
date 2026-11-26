@@ -1,4 +1,5 @@
-QT       += core gui svg
+QT       += core core-private gui svg
+
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -41,4 +42,4 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 
 RESOURCES += \
     resources.qrc
-    win32: LIBS += -ldwmapi -luser32
+    win32: LIBS += -ldwmapi -luser32 -lwinmm

@@ -18,22 +18,18 @@ class FloatingPaneGhost : public QWidget
 {
     Q_OBJECT
 public:
-    explicit FloatingPaneGhost(const QString &folderTitle, const QRect &startRect, const QPoint &cursorPos);
+    FloatingPaneGhost(const QString &folderTitle, const QRect &startRect, const QPoint &cursorPos);
     void updateCursorPos(const QPoint &cursorPos);
-    void setDockHighlight(bool canDock);
     QRect currentCardRect() const;
-
 
 protected:
     void paintEvent(QPaintEvent *event) override;
 
-
 private:
     QString m_title;
-    QPropertyAnimation *m_anim = nullptr;
     QPoint m_anchorOffset;
-    bool m_canDock = false;
-    bool m_animFinished = false;
+    qreal m_progress = 0.0;
+    QPixmap m_folderIcon;
 };
 
 class FilePane : public QFrame
@@ -53,6 +49,8 @@ public:
     void setCurrentPath(const QString &path);
     void setActive(bool active);
     void setClosable(bool closable);
+    void setContentFrozen(bool frozen);
+
     void highlightMatches(const QString &query);
     void copySelectionToClipboard(bool cut = false);
     void pasteFromClipboard();

@@ -22,6 +22,8 @@
 #include <QLabel>
 #include <QFrame>
 #include <QTimer>
+#include <QElapsedTimer>
+#include <QDebug>
 #include <QResizeEvent>
 #include <QPaintEvent>
 #include <QMouseEvent>
@@ -36,55 +38,73 @@
 #include <QDesktopServices>
 #include <QUrl>
 #include <functional>
-
+#include <QPointer>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QSharedPointer>
 namespace {
 class SmoothWindowRevealOverlay : public QWidget
 {
 public:
     SmoothWindowRevealOverlay(const QRect &cardStartRect, const QRect &winEndRect, const QString &title)
         : QWidget(nullptr, Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint),
-          m_startRect(cardStartRect),
-          m_endRect(winEndRect),
-          m_title(title)
+          m_startRect(cardStartRect.translated(-winEndRect.topLeft())),
+          m_endRect(QRect(QPoint(0, 0), winEndRect.size())),
+          m_title(title),
+          m_folderIcon(":/icons/icons/folder.png")
     {
         setAttribute(Qt::WA_TranslucentBackground);
         setAttribute(Qt::WA_ShowWithoutActivating);
-        setGeometry(m_startRect);
+        setGeometry(winEndRect);
     }
 
     void setProgress(qreal t)
     {
         m_progress = t;
-        auto lerp = [](int a, int b, qreal k) { return qRound(a + (b - a) * k); };
-        setGeometry(
-            lerp(m_startRect.x(), m_endRect.x(), t),
-            lerp(m_startRect.y(), m_endRect.y(), t),
-            lerp(m_startRect.width(), m_endRect.width(), t),
-            lerp(m_startRect.height(), m_endRect.height(), t)
-        );
         update();
+    }
+    void printPerfSummary() const
+    {
+        if (m_frameCount == 0) return;
+        double avgUs = (m_totalPaintNsec / 1000.0) / m_frameCount;
+        double avgMs = avgUs / 1000.0;
+        qDebug().nospace() << "[PERF Overlay] Кадров: " << m_frameCount
+                           << " | Средний кадр: " << QString::number(avgUs, 'f', 1) << " мкс ("
+                           << QString::number(avgMs, 'f', 2) << " мс) | Запас по CPU: ~"
+                           << qRound(1000.0 / qMax(0.01, avgMs)) << " FPS";
     }
 
 protected:
     void paintEvent(QPaintEvent *) override
     {
+        QElapsedTimer frameTimer;
+            frameTimer.start();
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
 
-        const int w = width();
-        const int h = height();
         auto lerp = [](int a, int b, qreal k) { return qRound(a + (b - a) * k); };
+        QRect cur(
+            lerp(m_startRect.x(), m_endRect.x(), m_progress),
+            lerp(m_startRect.y(), m_endRect.y(), m_progress),
+            lerp(m_startRect.width(), m_endRect.width(), m_progress),
+            lerp(m_startRect.height(), m_endRect.height(), m_progress)
+        );
+
+        const int ox = cur.x();
+        const int oy = cur.y();
+        const int w = cur.width();
+        const int h = cur.height();
 
         // 1. Внешний стеклянный фон окна (#0F0F0F 21%)
         QPainterPath winPath;
-        winPath.addRoundedRect(0, 0, w, h, Theme::kCardRadius, Theme::kCardRadius);
+        winPath.addRoundedRect(ox, oy, w, h, Theme::kCardRadius, Theme::kCardRadius);
         p.fillPath(winPath, QColor(15, 15, 15, qRound(54 * m_progress)));
 
         // 2. Верхний и нижний бары (38px, #B8B8B8 90%)
         int barH = lerp(0, Theme::kTopBarHeight, m_progress);
         if (barH > 2) {
-            p.fillRect(0, 0, w, barH, QColor(184, 184, 184, qRound(230 * m_progress)));
-            p.fillRect(0, h - barH, w, barH, QColor(184, 184, 184, qRound(230 * m_progress)));
+            p.fillRect(ox, oy, w, barH, QColor(184, 184, 184, qRound(230 * m_progress)));
+            p.fillRect(ox, oy + h - barH, w, barH, QColor(184, 184, 184, qRound(230 * m_progress)));
         }
 
         // 3. Левый бар (отступ 8px от баров и левого края)
@@ -95,15 +115,15 @@ protected:
 
         if (treeW > 8) {
             QPainterPath treePath;
-            treePath.addRoundedRect(leftPad, topPad, treeW, qMax(10, h - topPad - bottomPad), Theme::kCardRadius, Theme::kCardRadius);
+            treePath.addRoundedRect(ox + leftPad, oy + topPad, treeW, qMax(10, h - topPad - bottomPad), Theme::kCardRadius, Theme::kCardRadius);
             p.fillPath(treePath, QColor(184, 184, 184, qRound(230 * m_progress)));
         }
 
         // 4. Сама карточка папки (#B8B8B8 90%, радиус 12)
-        int cardLeft = (treeW > 0) ? (leftPad + treeW + lerp(0, Theme::kPaneSpacing, m_progress)) : 0;
-        int cardTop = topPad + lerp(0, Theme::kBreadcrumbHeight + Theme::kOuterMargin, m_progress);
-        int cardRight = w - lerp(0, Theme::kOuterMargin, m_progress);
-        int cardBottom = h - bottomPad;
+        int cardLeft = (treeW > 0) ? (ox + leftPad + treeW + lerp(0, Theme::kPaneSpacing, m_progress)) : ox;
+        int cardTop = oy + topPad + lerp(0, Theme::kBreadcrumbHeight + Theme::kOuterMargin, m_progress);
+        int cardRight = ox + w - lerp(0, Theme::kOuterMargin, m_progress);
+        int cardBottom = oy + h - bottomPad;
         QRect cardRect(cardLeft, cardTop, qMax(40, cardRight - cardLeft), qMax(40, cardBottom - cardTop));
 
         QPainterPath cardPath;
@@ -114,8 +134,8 @@ protected:
         p.setFont(QFont("Segoe UI", 9, QFont::Medium));
         p.drawText(QRect(cardRect.left() + 24, cardRect.top() + 18, cardRect.width() - 48, 20), Qt::AlignCenter, m_title);
 
-        QPixmap folderIcon(":/icons/icons/folder.png");
-        if (!folderIcon.isNull() && cardRect.height() > 90) {
+
+        if (!m_folderIcon.isNull() && cardRect.height() > 90) {
             int iconSize = 48;
             QRect iconRect(
                 cardRect.center().x() - iconSize / 2,
@@ -124,15 +144,22 @@ protected:
                 iconSize
             );
             p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-            p.drawPixmap(iconRect, folderIcon);
+            p.drawPixmap(iconRect, m_folderIcon);
         }
-    }
+        qint64 elapsedNs = frameTimer.nsecsElapsed();
+            m_totalPaintNsec += elapsedNs;
+            m_frameCount++;
+        }
 
 private:
+    qint64 m_totalPaintNsec = 0;
+    int m_frameCount = 0;
+
     QRect m_startRect;
     QRect m_endRect;
     QString m_title;
     qreal m_progress = 0.0;
+    QPixmap m_folderIcon;
 };
 } // namespace
 
@@ -154,29 +181,57 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
         ui->tableView = nullptr;
     }
 
-    if (statusBar()) {
-        statusBar()->hide();
-    }
+    if (statusBar()) statusBar()->hide();
+    if (menuBar()) menuBar()->hide();
+    ui->toolBar->hide();
 
     if (ui->centralwidget->layout()) {
         delete ui->centralwidget->layout();
     }
     QVBoxLayout *rootVBox = new QVBoxLayout(ui->centralwidget);
     rootVBox->setContentsMargins(0, 0, 0, 0);
+    // Заходим на 4px в зону 12px ушек сверху и снизу -> остаётся ровно 8px до баров
     rootVBox->setSpacing(0);
 
+    setupBookmarks();
+    loadViewSettings();
+    setupViewMenu();
+    setupTopGlassBar();
+    rootVBox->addWidget(topGlassBar);
+
     QWidget *workspaceBox = new QWidget(ui->centralwidget);
+    workspaceBox->setObjectName("WorkspaceBox");
     workspaceBox->setStyleSheet("background: transparent;");
-    QVBoxLayout *wsLayout = new QVBoxLayout(workspaceBox);
-    wsLayout->setContentsMargins(Theme::kOuterMargin, Theme::kOuterMargin, Theme::kOuterMargin, Theme::kOuterMargin);
-    wsLayout->setSpacing(0);
-    wsLayout->addWidget(ui->splitter, 1);
+    workspaceBox->installEventFilter(this);
 
     rootVBox->addWidget(workspaceBox, 1);
+    setupBottomGlassBar();
+    rootVBox->addWidget(bottomGlassBar);
+    ui->splitter->setParent(ui->centralwidget);
+    ui->splitter->raise();
 
-    dirModel = new QFileSystemModel(this);
-    dirModel->setFilter(QDir::NoDotAndDotDot | QDir::AllDirs);
-    dirModel->setRootPath("");
+    // Общий кэш моделей ФС и иконок для всех окон — мгновенное открытие без повторного сканирования диска
+    static QFileSystemModel *s_sharedDirModel = nullptr;
+    static QFileSystemModel *s_sharedFileModel = nullptr;
+    static ThumbnailIconProvider *s_sharedIconProvider = nullptr;
+
+    if (!s_sharedIconProvider) {
+        s_sharedIconProvider = new ThumbnailIconProvider();
+
+        s_sharedDirModel = new QFileSystemModel(qApp);
+        s_sharedDirModel->setFilter(QDir::NoDotAndDotDot | QDir::AllDirs);
+        s_sharedDirModel->setRootPath("");
+        s_sharedDirModel->setIconProvider(s_sharedIconProvider);
+
+        s_sharedFileModel = new QFileSystemModel(qApp);
+        s_sharedFileModel->setFilter(QDir::NoDotAndDotDot | QDir::AllDirs | QDir::Files);
+        s_sharedFileModel->setRootPath("");
+        s_sharedFileModel->setIconProvider(s_sharedIconProvider);
+    }
+
+    dirModel = s_sharedDirModel;
+    fileModel = s_sharedFileModel;
+    iconProvider = s_sharedIconProvider;
 
     ui->treeView->setModel(dirModel);
     for (int i = 1; i < dirModel->columnCount(); ++i) {
@@ -186,53 +241,31 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
     ui->treeView->setUniformRowHeights(true);
     ui->treeView->setSelectionMode(QAbstractItemView::ExtendedSelection);
 
-    fileModel = new QFileSystemModel(this);
-    fileModel->setFilter(QDir::NoDotAndDotDot | QDir::AllDirs | QDir::Files);
-    fileModel->setRootPath("");
-
-    iconProvider = new ThumbnailIconProvider();
-    dirModel->setIconProvider(iconProvider);
-    fileModel->setIconProvider(iconProvider);
-
     // Горячие клавиши
     QShortcut *newPaneShortcut = new QShortcut(QKeySequence("Ctrl+T"), this);
     connect(newPaneShortcut, &QShortcut::activated, this, [this]() {
         addNewPane(activePane ? activePane->currentPath() : QDir::homePath());
     });
-
     QShortcut *upShortcut = new QShortcut(QKeySequence(Qt::Key_Backspace), this);
     connect(upShortcut, &QShortcut::activated, this, &MainWindow::on_action_7_triggered);
-
     QShortcut *delShortcut = new QShortcut(QKeySequence::Delete, this);
     connect(delShortcut, &QShortcut::activated, this, &MainWindow::on_action_2_triggered);
-
     QShortcut *copyShortcut = new QShortcut(QKeySequence::Copy, this);
     connect(copyShortcut, &QShortcut::activated, this, [this]() {
         if (activePane) activePane->copySelectionToClipboard(false);
     });
-
     QShortcut *cutShortcut = new QShortcut(QKeySequence::Cut, this);
     connect(cutShortcut, &QShortcut::activated, this, [this]() {
         if (activePane) activePane->copySelectionToClipboard(true);
     });
-
     QShortcut *pasteShortcut = new QShortcut(QKeySequence::Paste, this);
     connect(pasteShortcut, &QShortcut::activated, this, [this]() {
         if (activePane) activePane->pasteFromClipboard();
     });
-
     QShortcut *renameShortcut = new QShortcut(QKeySequence(Qt::Key_F2), this);
     connect(renameShortcut, &QShortcut::activated, this, [this]() {
         if (activePane) activePane->renameSelectedItem();
     });
-
-    menuBar()->hide();
-    ui->toolBar->hide();
-    setupBookmarks();
-    loadViewSettings();
-    setupViewMenu();
-    setupTopGlassBar();
-    setupBottomGlassBar();
     setupLeftSidebar();
     setupBreadcrumbs();
     setupBookmarksBoard();
@@ -344,75 +377,74 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                 }
                 void MainWindow::addNewPane(const QString &path)
                 {
-                FilePane *pane = new FilePane(fileModel, panesHolder);
-                pane->setViewMode(savedViewMode);
-                pane->setIconSizePx(savedIconSize);
-                // Новая папка появляется справа от существующих и плавно сдвигает их (FLUID-анимация)
-                if (panesHolder && !panes.isEmpty()) {
-                pane->setGeometry(panesHolder->width(), 0, qMax(180, panesHolder->width() / (panes.size() + 1)), panesHolder->height());
+                    FilePane *pane = new FilePane(fileModel, panesHolder);
+                    pane->setViewMode(savedViewMode);
+                    pane->setIconSizePx(savedIconSize);
+
+                    // Новая папка появляется справа от существующих и плавно сдвигает их
+                    if (panesHolder && !panes.isEmpty()) {
+                        pane->setGeometry(panesHolder->width(), 0, qMax(180, panesHolder->width() / (panes.size() + 1)), panesHolder->height());
+                    }
+                    pane->show();
+                    panes.append(pane);
+
+                    connect(pane, &FilePane::activated, this, [this](FilePane *clickedPane) {
+                        setActivePane(clickedPane);
+                    });
+                    connect(pane, &FilePane::closeRequested, this, [this](FilePane *targetPane) {
+                        removePane(targetPane);
+                    });
+                    connect(pane, &FilePane::paneDragStateChanged, this, [this](FilePane *, bool) {
+                        updateWorkspaceState(true);
+                    });
+                    connect(pane, &FilePane::pathChanged, this, [this, pane](const QString &newPath) {
+                        if (pane == activePane) {
+                            updateBreadcrumbs(newPath);
+                            syncTreeWithPath(newPath);
+                            if (iconProvider) {
+                                iconProvider->setActivePath(newPath);
+                                refreshDriveIcons();
+                            }
+                        }
+                    });
+                    connect(pane, &FilePane::contextMenuRequested, this, [this](FilePane *targetPane, const QPoint &pos) {
+                        showPaneContextMenu(targetPane, pos);
+                    });
+                    connect(pane, &FilePane::paneDraggedOut, this, [this](FilePane *draggedPane, const QPoint &globalPos, const QRect &ghostRect) {
+                        QString targetPath = draggedPane->currentPath();
+                        MainWindow *targetWin = nullptr;
+                        for (QWidget *w : QApplication::topLevelWidgets()) {
+                            MainWindow *mw = qobject_cast<MainWindow*>(w);
+                            if (!mw || mw == this || !mw->isVisible() || mw->isMinimized()) {
+                                continue;
+                            }
+                            QRect winRect(mw->mapToGlobal(QPoint(0, 0)), mw->size());
+                            if (winRect.contains(globalPos)) {
+                                targetWin = mw;
+                                break;
+                            }
+                        }
+                        if (targetWin) {
+                            targetWin->dockPaneFromExternal(targetPath);
+                            targetWin->raise();
+                            targetWin->activateWindow();
+                            removePane(draggedPane);
+                            return;
+                        }
+                        QRect myRect(mapToGlobal(QPoint(0, 0)), size());
+                        if (myRect.contains(globalPos)) {
+                            updateWorkspaceState(true);
+                            return;
+                        }
+                        removePane(draggedPane);
+                        MainWindow::launchExpandedWindow(targetPath, ghostRect);
+                    });
+
+                    setActivePane(pane);
+                    pane->setCurrentPath(path);
+                    updateWorkspaceState(panes.size() > 1);
                 }
-                pane->show();
-                panes.append(pane);
-                connect(pane, &FilePane::activated, this, [this](FilePane *clickedPane) {
-                setActivePane(clickedPane);
-                });
-                connect(pane, &FilePane::closeRequested, this, [this](FilePane *targetPane) {
-                removePane(targetPane);
-                });
-                connect(pane, &FilePane::paneDragStateChanged, this, [this](FilePane *, bool) {
-                // Когда карточку оторвали в миниатюру — оставшиеся папки плавно заполняют её место
-                updateWorkspaceState(true);
-                });
-                connect(pane, &FilePane::pathChanged, this, [this, pane](const QString &newPath) {
-                if (pane == activePane) {
-                updateBreadcrumbs(newPath);
-                syncTreeWithPath(newPath);
-                if (iconProvider) {
-                iconProvider->setActivePath(newPath);
-                refreshDriveIcons();
-                }
-                }
-                });
-                connect(pane, &FilePane::contextMenuRequested, this, [this](FilePane *targetPane, const QPoint &pos) {
-                showPaneContextMenu(targetPane, pos);
-                });
-                connect(pane, &FilePane::paneDraggedOut, this, [this](FilePane *draggedPane, const QPoint &globalPos, const QRect &ghostRect) {
-                QString targetPath = draggedPane->currentPath();
-                MainWindow *targetWin = nullptr;
-                for (QWidget *w : QApplication::topLevelWidgets()) {
-                MainWindow *mw = qobject_cast<MainWindow*>(w);
-                if (!mw || mw == this || !mw->isVisible() || mw->isMinimized()) {
-                continue;
-                }
-                QRect winRect(mw->mapToGlobal(QPoint(0, 0)), mw->size());
-                if (winRect.contains(globalPos)) {
-                targetWin = mw;
-                break;
-                }
-                }
-                if (targetWin) {
-                targetWin->dockPaneFromExternal(targetPath);
-                targetWin->raise();
-                targetWin->activateWindow();
-                removePane(draggedPane);
-                return;
-                }
-                QRect myRect(mapToGlobal(QPoint(0, 0)), size());
-                if (myRect.contains(globalPos)) {
-                updateWorkspaceState(true);
-                return;
-                }
-                removePane(draggedPane);
-                MainWindow *newWin = new MainWindow(targetPath);
-                newWin->setAttribute(Qt::WA_DeleteOnClose);
-                newWin->playExpandFromRect(ghostRect);
-                newWin->raise();
-                newWin->activateWindow();
-                });
-                setActivePane(pane);
-                pane->setCurrentPath(path);
-                updateWorkspaceState(panes.size() > 1);
-                }
+
                 void MainWindow::setActivePane(FilePane *pane)
                 {
                 if (!pane) return;
@@ -475,60 +507,111 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                 }
                 void MainWindow::dockPaneFromExternal(const QString &path)
                 {
-                addNewPane(path);
+                    addNewPane(path);
+                    if (!panes.isEmpty() && panesHolder) {
+                        FilePane *lastPane = panes.last();
+                        int startX = qBound(0, panesHolder->mapFromGlobal(QCursor::pos()).x(), qMax(0, panesHolder->width() - 10));
+                        lastPane->setGeometry(startX, 0, 10, panesHolder->height());
+                    }
                 }
-                void MainWindow::playExpandFromRect(const QRect &startRect)
+
+                void MainWindow::launchExpandedWindow(const QString &path, const QRect &startRect)
                 {
-                setProperty("isExpanding", true);
-                QSize targetSize(980, 640);
-                QPoint targetTopLeft = startRect.topLeft() - QPoint(236, 86);
-                targetTopLeft.setX(qMax(20, targetTopLeft.x()));
-                targetTopLeft.setY(qMax(20, targetTopLeft.y()));
-                QRect endRect(targetTopLeft, targetSize);
-                QString title = activePane ? QFileInfo(activePane->currentPath()).fileName() : QString("Folder");
-                if (title.isEmpty() && activePane) title = activePane->currentPath();
-                setGeometry(endRect);
-                equalizePaneSizes();
-                setWindowOpacity(0.0);
-                show();
-                auto *overlay = new SmoothWindowRevealOverlay(startRect, endRect, title);
-                overlay->show();
-                QVariantAnimation *anim = new QVariantAnimation(overlay);
-                anim->setDuration(Theme::kExpandAnimMs);
-                anim->setStartValue(0.0);
-                anim->setEndValue(1.0);
-                anim->setEasingCurve(QEasingCurve::OutCubic);
-                connect(anim, &QVariantAnimation::valueChanged, overlay, [overlay](const QVariant &v) {
-                overlay->setProgress(v.toReal());
-                });
-                connect(anim, &QVariantAnimation::finished, this, [this, overlay]() {
-                setWindowOpacity(1.0);
-                PlatformHelper::enableGlassBlur(this);
-                raise();
-                activateWindow();
-                overlay->hide();
-                overlay->deleteLater();
-                setProperty("isExpanding", false);
-                layoutPanesAnimated(false);
-                updateSearchBarGeometry();
-                });
-                anim->start(QAbstractAnimation::DeleteWhenStopped);
+                    QElapsedTimer launchTimer;
+                    launchTimer.start();
+
+                    QRect targetGeom(startRect.center().x() - 490, startRect.center().y() - 320, 980, 640);
+                    if (QScreen *scr = QGuiApplication::screenAt(startRect.center())) {
+                        QRect avail = scr->availableGeometry();
+                        targetGeom.moveLeft(qBound(avail.left() + 20, targetGeom.left(), avail.right() - targetGeom.width() - 20));
+                        targetGeom.moveTop(qBound(avail.top() + 20, targetGeom.top(), avail.bottom() - targetGeom.height() - 20));
+                    }
+
+                    QString title = QFileInfo(path).fileName();
+                    if (title.isEmpty()) title = path;
+
+                    auto *overlay = new SmoothWindowRevealOverlay(startRect, targetGeom, title);
+                    overlay->show();
+
+                    qDebug().nospace() << "[PERF Launch] Старт оверлея за: "
+                                       << QString::number(launchTimer.nsecsElapsed() / 1000.0, 'f', 1) << " мкс";
+
+                    auto preparedWin = QSharedPointer<QPointer<MainWindow>>::create();
+
+                    QTimer::singleShot(0, overlay, [preparedWin, path, targetGeom]() {
+                        QElapsedTimer prepTimer;
+                        prepTimer.start();
+
+                        MainWindow *w = new MainWindow(path);
+                        w->setAttribute(Qt::WA_DeleteOnClose);
+                        w->setAttribute(Qt::WA_DontShowOnScreen, true);
+                        w->setGeometry(targetGeom);
+                        w->show();
+                        PlatformHelper::enableGlassBlur(w);
+                        w->hide();
+                        w->setAttribute(Qt::WA_DontShowOnScreen, false);
+                        *preparedWin = w;
+
+                        qDebug().nospace() << "[PERF Prep] Фоновый прогрев MainWindow занял: "
+                                           << QString::number(prepTimer.nsecsElapsed() / 1000000.0, 'f', 2) << " мс";
+                    });
+
+                    auto *anim = new QVariantAnimation(overlay);
+                    anim->setDuration(240);
+                    anim->setStartValue(0.0);
+                    anim->setEndValue(1.0);
+                    anim->setEasingCurve(QEasingCurve::OutQuint);
+                    QObject::connect(anim, &QVariantAnimation::valueChanged, overlay, [overlay](const QVariant &v) {
+                        overlay->setProgress(v.toReal());
+                    });
+                    QObject::connect(anim, &QVariantAnimation::finished, overlay, [overlay, preparedWin, path, targetGeom]() {
+                        overlay->printPerfSummary();
+
+                        QElapsedTimer showTimer;
+                        showTimer.start();
+
+                        MainWindow *newWin = *preparedWin;
+                        if (!newWin) {
+                            newWin = new MainWindow(path);
+                            newWin->setAttribute(Qt::WA_DeleteOnClose);
+                            newWin->setGeometry(targetGeom);
+                        }
+                        newWin->show();
+                        newWin->raise();
+                        newWin->activateWindow();
+
+                        qDebug().nospace() << "[PERF Show] Показ готового окна занял: "
+                                           << QString::number(showTimer.nsecsElapsed() / 1000.0, 'f', 1) << " мкс";
+
+                        QTimer::singleShot(15, overlay, &QObject::deleteLater);
+                    });
+                    anim->start(QAbstractAnimation::DeleteWhenStopped);
                 }
+
+
                 // ==========================================
                 // Пиксельный расчёт ширины папок (W - 8*(n-1)) / n + синхронная FLIP-анимация заполнения
                 // ==========================================
-                void MainWindow::layoutPanesAnimated(bool animate)
-                {
-                if (!panesHolder) return;
-                QList<FilePane*> visiblePanes;
-                for (FilePane *p : panes) {
-                if (p->isDetached()) {
-                p->hide();
-                } else {
-                p->show();
-                visiblePanes.append(p);
-                }
-                }
+
+                    void MainWindow::layoutPanesAnimated(bool animate)
+                    {
+                        if (!panesHolder) return;
+
+                        // Если сейчас уже идёт плавная анимация, не даём фоновому Resize-событию её прерывать!
+                        if (!animate && activeReflowGroup && activeReflowGroup->state() == QAbstractAnimation::Running) {
+                            return;
+                        }
+
+                        QList<FilePane*> visiblePanes;
+                        for (FilePane *p : panes) {
+                            if (p->isDetached()) {
+                                p->hide();
+                            } else {
+                                p->show();
+                                visiblePanes.append(p);
+                            }
+                        }
+
                 int n = visiblePanes.size();
                 if (n == 0) return;
                 int totalW = panesHolder->width();
@@ -547,31 +630,51 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                 targetRects.append(QRect(curX, 0, paneW, totalH));
                 curX += paneW + Theme::kPaneSpacing;
                 }
+                if (activeReflowGroup) {
+                    activeReflowGroup->stop();
+                    activeReflowGroup->deleteLater();
+                    activeReflowGroup = nullptr;
+                }
+
                 if (!animate) {
+                    for (int i = 0; i < n; ++i) {
+                        visiblePanes[i]->setContentFrozen(false);
+                        visiblePanes[i]->setGeometry(targetRects[i]);
+                    }
+                    return;
+                }
+
+                activeReflowGroup = new QParallelAnimationGroup(panesHolder);
+                QList<QPointer<FilePane>> animatedPanes;
+
                 for (int i = 0; i < n; ++i) {
-                visiblePanes[i]->setGeometry(targetRects[i]);
+                    FilePane *p = visiblePanes[i];
+                    QRect startR = p->geometry();
+                    QRect endR = targetRects[i];
+                    if (startR == endR) continue;
+
+                    p->setContentFrozen(true);
+                    animatedPanes.append(p);
+
+                    QPropertyAnimation *anim = new QPropertyAnimation(p, "geometry", activeReflowGroup);
+                    anim->setDuration(Theme::kReflowAnimMs);
+                    anim->setStartValue(startR);
+                    anim->setEndValue(endR);
+                    anim->setEasingCurve(QEasingCurve::OutQuint);
+                    activeReflowGroup->addAnimation(anim);
                 }
-                return;
-                }
-                // Параллельная анимация за одинаковое время (180 мс):
-                // папка, которой нужно пройти больше пикселей, движется быстрее остальных!
-                QParallelAnimationGroup *group = new QParallelAnimationGroup(panesHolder);
-                for (int i = 0; i < n; ++i) {
-                FilePane *p = visiblePanes[i];
-                QRect startR = p->geometry();
-                QRect endR = targetRects[i];
-                if (startR == endR) continue;
-                QPropertyAnimation *anim = new QPropertyAnimation(p, "geometry", group);
-                anim->setDuration(Theme::kReflowAnimMs);
-                anim->setStartValue(startR);
-                anim->setEndValue(endR);
-                anim->setEasingCurve(QEasingCurve::OutCubic);
-                group->addAnimation(anim);
-                }
-                if (group->animationCount() > 0) {
-                group->start(QAbstractAnimation::DeleteWhenStopped);
+
+                if (activeReflowGroup->animationCount() > 0) {
+                    connect(activeReflowGroup, &QParallelAnimationGroup::finished, this, [this, animatedPanes]() {
+                        for (const auto &p : animatedPanes) {
+                            if (p) p->setContentFrozen(false);
+                        }
+                        activeReflowGroup = nullptr;
+                    });
+                    activeReflowGroup->start(QAbstractAnimation::DeleteWhenStopped);
                 } else {
-                delete group;
+                    delete activeReflowGroup;
+                    activeReflowGroup = nullptr;
                 }
                 }
                 void MainWindow::equalizePaneSizes()
@@ -899,6 +1002,7 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                 void MainWindow::setupTopGlassBar()
                 {
                     topGlassBar = new TopGlassBar(viewMenu, bookmarksMenu, this);
+
                     connect(topGlassBar, &TopGlassBar::newFolderRequested, this, &MainWindow::on_action_5_triggered);
                     connect(topGlassBar, &TopGlassBar::newPaneRequested, this, [this]() {
                         addNewPane(activePane ? activePane->currentPath() : QDir::homePath());
@@ -920,54 +1024,48 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                         "• Backspace — на уровень вверх\n"
                         "• Delete — в корзину");
                         });
-                        setMenuWidget(topGlassBar);
                         }
-                        void MainWindow::setupBottomGlassBar()
-                        {
-                        bottomGlassBar = new QWidget(this);
-                        bottomGlassBar->setObjectName("BottomGlassBar");
-                        bottomGlassBar->setFixedHeight(Theme::kBottomBarHeight);
-                        bottomGlassBar->setStyleSheet(
+                void MainWindow::setupBottomGlassBar()
+                {
+                    bottomGlassBar = new QWidget(this);
+                    bottomGlassBar->setObjectName("BottomGlassBar");
+                    bottomGlassBar->setFixedHeight(Theme::kBottomBarHeight + Theme::kCardRadius);
+                    bottomGlassBar->setAttribute(Qt::WA_TranslucentBackground);
+                    bottomGlassBar->installEventFilter(this);
+                    bottomGlassBar->setStyleSheet(
                         QString(
-                        "#BottomGlassBar {"
-                        "  background-color: %2;"
-                        "  border-bottom-left-radius: 12px;"
-                        "  border-bottom-right-radius: 12px;"
-                        "}"
-                        "QPushButton#ControlPanelBtn {"
-                        "  background: transparent;"
-                        "  border: none;"
-                        "  border-radius: 6px;"
-                        "  color: #111111;"
-                        "  font-family: %1;"
-                        "  font-size: 12px;"
-                        "  font-weight: 400;"
-                        "  padding: 4px 12px;"
-                        "}"
-                        "QPushButton#ControlPanelBtn:hover {"
-                        "  background-color: rgba(255, 255, 255, 85);"
-                        "}"
-                        ).arg(Theme::fontFamily(), Theme::surfaceCss())
-                        );
-                        QHBoxLayout *botLayout = new QHBoxLayout(bottomGlassBar);
-                        botLayout->setContentsMargins(10, 0, 10, 0);
-                        botLayout->setSpacing(0);
-                        // Слева кнопка control panel (без разделителя |), открывает Параметры Windows / Настройки Linux
-                        QPushButton *ctrlPanelBtn = new QPushButton("control panel", bottomGlassBar);
-                        ctrlPanelBtn->setObjectName("ControlPanelBtn");
-                        ctrlPanelBtn->setCursor(Qt::PointingHandCursor);
-                        connect(ctrlPanelBtn, &QPushButton::clicked, this, []() {
-                        PlatformHelper::openSystemSettings();
-                        });
-                        botLayout->addWidget(ctrlPanelBtn);
-                        botLayout->addStretch(1);
-                        botLayout->addWidget(ctrlPanelBtn);
-                           botLayout->addStretch(1);
+                            "#BottomGlassBar { background: transparent; border: none; }"
+                            "QPushButton#ControlPanelBtn {"
+                            "  background: transparent;"
+                            "  border: none;"
+                            "  border-radius: 6px;"
+                            "  color: #111111;"
+                            "  font-family: %1;"
+                            "  font-size: 12px;"
+                            "  font-weight: 400;"
+                            "  padding: 4px 12px;"
+                            "}"
+                            "QPushButton#ControlPanelBtn:hover {"
+                            "  background-color: rgba(255, 255, 255, 85);"
+                            "}"
+                        ).arg(Theme::fontFamily())
+                    );
 
-                           if (auto *rootVBox = qobject_cast<QVBoxLayout*>(ui->centralwidget->layout())) {
-                               rootVBox->addWidget(bottomGlassBar);
-                           }
-                        }
+                    QHBoxLayout *botLayout = new QHBoxLayout(bottomGlassBar);
+                    botLayout->setContentsMargins(10, Theme::kCardRadius, 10, 0);
+                    botLayout->setSpacing(0);
+
+                    QPushButton *ctrlPanelBtn = new QPushButton("control panel", bottomGlassBar);
+                    ctrlPanelBtn->setObjectName("ControlPanelBtn");
+                    ctrlPanelBtn->setCursor(Qt::PointingHandCursor);
+                    connect(ctrlPanelBtn, &QPushButton::clicked, this, []() {
+                        PlatformHelper::openSystemSettings();
+                    });
+
+                    botLayout->addWidget(ctrlPanelBtn);
+                    botLayout->addStretch(1);
+                }
+
                         // ==========================================
                         // Умный левый бар (16px отступы, линия 160px по центру, Bookmarks + Mounted devices)
                         // ==========================================
@@ -1052,7 +1150,8 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                         );
                         sideLayout->addWidget(ui->treeView, 1);
                         ui->splitter->insertWidget(0, leftSidebarCard);
-                        rebuildLeftBookmarks();
+                        QTimer::singleShot(0, this, [this]() { rebuildLeftBookmarks(); });
+
                         }
                         void MainWindow::rebuildLeftBookmarks()
                         {
@@ -1373,13 +1472,14 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                         if (breadcrumbContainer) breadcrumbContainer->hide();
                         if (panesHolder) panesHolder->hide();
                         if (bookmarksBoard) {
-                        rebuildBookmarksBoard();
+                        QTimer::singleShot(0, this, [this]() { rebuildBookmarksBoard(); });
                         bookmarksBoard->show();
                         }
                         } else {
                         // При n >= 1 избранное появляется в левом баре (если добавлено)
                         if (leftBookmarksSection) {
-                        rebuildLeftBookmarks();
+                        QTimer::singleShot(0, this, [this]() { rebuildLeftBookmarks(); });
+
                         leftBookmarksSection->setVisible(!bookmarks.isEmpty());
                         }
                         if (bookmarksBoard) bookmarksBoard->hide();
@@ -1447,16 +1547,61 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                         }
                         bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                         {
-                        if (watched == panesHolder && event->type() == QEvent::Resize) {
-                        layoutPanesAnimated(false);
-                        return false;
+                            if (watched && watched->objectName() == "WorkspaceBox" && event->type() == QEvent::Resize) {
+                                QWidget *wb = qobject_cast<QWidget*>(watched);
+                                const int side = Theme::kOuterMargin; // 8px слева и справа
+                                const int overlap = -3; // -4px (12 - 4 = 8px до баров!)
+                                QRect r = wb->geometry();
+                                ui->splitter->setGeometry(
+                                    r.x() + side,
+                                    r.y() + overlap,
+                                    r.width() - side * 2,
+                                    r.height() - overlap * 2
+                                );
+                                ui->splitter->raise();
+                                return false;
+                            }
+
+
+                            if (watched == panesHolder && event->type() == QEvent::Resize) {
+                                layoutPanesAnimated(false);
+                                return false;
+                            }
+
+                        if (watched == bottomGlassBar && event->type() == QEvent::Paint) {
+                            QPainter p(bottomGlassBar);
+                            p.setRenderHint(QPainter::Antialiasing, true);
+
+                            const qreal w = bottomGlassBar->width();
+                            const qreal h = bottomGlassBar->height();
+                            const qreal r = Theme::kCardRadius; // 12px
+
+                            // 1. Внешний контур нижнего бара со скруглёнными нижними углами 12px
+                            QPainterPath outer;
+                            outer.moveTo(0, 0);
+                            outer.lineTo(w, 0);
+                            outer.lineTo(w, h - r);
+                            outer.arcTo(w - 2 * r, h - 2 * r, 2 * r, 2 * r, 0, -90);
+                            outer.lineTo(r, h);
+                            outer.arcTo(0, h - 2 * r, 2 * r, 2 * r, 270, -90);
+                            outer.closeSubpath();
+
+                            // 2. Выемка сверху высотой r (12px) — создаёт зеркальные вогнутые ушки сверху!
+                            QPainterPath cutout;
+                            cutout.addRoundedRect(QRectF(0, -r, w, r * 2), r, r);
+
+                            QPainterPath finalBar = outer.subtracted(cutout);
+                            p.fillPath(finalBar, Theme::surfaceColor());
+                            return true;
                         }
+
                         if (watched == bookmarksBoard && event->type() == QEvent::Resize) {
-                        if (auto *wm = bookmarksBoard->findChild<QLabel*>("CenterWatermark")) {
-                        wm->setGeometry(bookmarksBoard->rect());
+                            if (auto *wm = bookmarksBoard->findChild<QLabel*>("CenterWatermark")) {
+                                wm->setGeometry(bookmarksBoard->rect());
+                            }
+                            return false;
                         }
-                        return false;
-                        }
+
                         if (watched == breadcrumbContainer && event->type() == QEvent::MouseButtonDblClick) {
                         if (manualPathEdit) {
                         QString cur = activePane ? QDir::toNativeSeparators(activePane->currentPath()) : "";
@@ -1500,13 +1645,14 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                         }
                         void MainWindow::paintEvent(QPaintEvent *event)
                         {
-                        QPainter painter(this);
-                        painter.setRenderHint(QPainter::Antialiasing, true);
-                        painter.setCompositionMode(QPainter::CompositionMode_Source);
-                        // Область под барами: цвет #0F0F0F с прозрачностью 21%
-                        QPainterPath fullWinPath;
-                        fullWinPath.addRoundedRect(rect(), Theme::kCardRadius, Theme::kCardRadius);
-                        painter.fillRect(rect(), QColor(0, 0, 0, 0));
-                        painter.fillPath(fullWinPath, Theme::windowUnderlayColor());
-                        QMainWindow::paintEvent(event);
+                            QPainter painter(this);
+                            painter.setRenderHint(QPainter::Antialiasing, true);
+                            painter.setCompositionMode(QPainter::CompositionMode_Source);
+
+                            painter.fillRect(rect(), QColor(0, 0, 0, 0));
+
+                            QRect innerRect = rect().adjusted(0, Theme::kTopBarHeight, 0, -Theme::kBottomBarHeight);
+                            painter.fillRect(innerRect, Theme::windowUnderlayColor());
+
+                            QMainWindow::paintEvent(event);
                         }

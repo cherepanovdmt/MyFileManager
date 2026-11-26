@@ -18,6 +18,8 @@ namespace Ui {
 class MainWindow;
 }
 QT_END_NAMESPACE
+class QParallelAnimationGroup;
+
 
 class MainWindow : public QMainWindow
 {
@@ -29,7 +31,7 @@ public:
 
     void dockPaneFromExternal(const QString &path);
     bool canAcceptDockAt(const QPoint &globalPos) const;
-    void playExpandFromRect(const QRect &startRect);
+    static void launchExpandedWindow(const QString &path, const QRect &startRect);
 
 private slots:
     void on_action_2_triggered();
@@ -48,6 +50,8 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    QParallelAnimationGroup *activeReflowGroup = nullptr;
+
     Ui::MainWindow *ui;
     QFileSystemModel *dirModel;
     QFileSystemModel *fileModel;
@@ -66,6 +70,8 @@ private:
     void removePane(FilePane *pane);
     void equalizePaneSizes();
     void layoutPanesAnimated(bool animate = true);
+
+
     void openPathInActivePane(const QString &path);
     void syncTreeWithPath(const QString &path);
     void showPaneContextMenu(FilePane *pane, const QPoint &pos);

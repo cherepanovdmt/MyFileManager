@@ -6,21 +6,27 @@
 #include <QMouseEvent>
 #include <QWindow>
 #include "platformhelper.h"
+#include <QPainter>
+#include <QPainterPath>
+#include <QPaintEvent>
+
 TopGlassBar::TopGlassBar(QMenu *viewMenu, QMenu *bookmarksMenu, QWidget *parent)
     : QWidget(parent)
 {
+    setAttribute(Qt::WA_TranslucentBackground);
     setObjectName("TopGlassBar");
-    setFixedHeight(Theme::kTopBarHeight);
-    installEventFilter(this);
+    setFixedHeight(Theme::kTopBarHeight + Theme::kCardRadius);
+    setAttribute(Qt::WA_TranslucentBackground);
 
+    setAttribute(Qt::WA_TranslucentBackground);
+    installEventFilter(this);
     setStyleSheet(
         QString(
             "#TopGlassBar {"
-            "  background-color: rgba(184, 184, 184, 230);"
-            "  border-top-left-radius: 12px;"
-            "  border-top-right-radius: 12px;"
+            "  background: transparent;"
+            "  border: none;"
             "}"
-            "QPushButton#BarMenuBtn {"
+            "QPushButton {"
             "  background: transparent;"
             "  border: none;"
             "  border-radius: 6px;"
@@ -30,10 +36,10 @@ TopGlassBar::TopGlassBar(QMenu *viewMenu, QMenu *bookmarksMenu, QWidget *parent)
             "  font-weight: 400;"
             "  padding: 4px 10px;"
             "}"
-            "QPushButton#BarMenuBtn:hover {"
+            "QPushButton:hover {"
             "  background-color: rgba(255, 255, 255, 85);"
             "}"
-            "QPushButton#BarMenuBtn::menu-indicator {"
+            "QPushButton::menu-indicator {"
             "  image: none;"
             "  width: 0px;"
             "  height: 0px;"
@@ -44,7 +50,7 @@ TopGlassBar::TopGlassBar(QMenu *viewMenu, QMenu *bookmarksMenu, QWidget *parent)
             "  border-radius: 6px;"
             "  color: #111111;"
             "  font-size: 13px;"
-            "  font-weight: 500;"
+            "  padding: 0px;"
             "}"
             "QPushButton#WinCtrlBtn:hover {"
             "  background-color: rgba(255, 255, 255, 95);"
@@ -56,8 +62,9 @@ TopGlassBar::TopGlassBar(QMenu *viewMenu, QMenu *bookmarksMenu, QWidget *parent)
         ).arg(Theme::fontFamily())
     );
 
+
     QHBoxLayout *barLayout = new QHBoxLayout(this);
-    barLayout->setContentsMargins(10, 0, 8, 0);
+    barLayout->setContentsMargins(10, 0, 10, Theme::kCardRadius);
     barLayout->setSpacing(4);
 
     auto addSep = [&]() {
@@ -174,3 +181,33 @@ bool TopGlassBar::eventFilter(QObject *watched, QEvent *event)
     }
     return QWidget::eventFilter(watched, event);
 }
+void TopGlassBar::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    const qreal w = width();
+    const qreal h = height();
+    const qreal r = Theme::kCardRadius; // 12px
+
+    // 1. Внешний контур (скругленные ВЕРХНИЕ углы)
+    QPainterPath outer;
+    outer.moveTo(0, r);
+    outer.arcTo(0, 0, 2 * r, 2 * r, 180, -90);      // Левый верхний угол
+    outer.lineTo(w - r, 0);
+    outer.arcTo(w - 2 * r, 0, 2 * r, 2 * r, 90, -90); // Правый верхний угол
+    outer.lineTo(w, h);
+    outer.lineTo(0, h);
+    outer.closeSubpath();
+
+    // 2. Выемка СНИЗУ (зеркально нижнему бару)
+    QPainterPath cutout;
+    cutout.addRoundedRect(QRectF(0, h - r, w, r * 2), r, r);
+
+    QPainterPath finalBar = outer.subtracted(cutout);
+
+    // Заливаем цветом поверхности
+    p.fillPath(finalBar, Theme::surfaceColor());
+}
+
+

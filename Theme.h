@@ -7,10 +7,10 @@
 namespace Theme {
 
 // Точные размеры и отступы из ТЗ (1 в 1)
-constexpr int kTopBarHeight = 38;
-constexpr int kBottomBarHeight = 38;
-constexpr int kWinBtnWidth = 34;
-constexpr int kWinBtnHeight = 28;
+constexpr int kTopBarHeight = 28;//высота верхнего бара
+constexpr int kBottomBarHeight = 28;//высота нижнего бара
+constexpr int kWinBtnWidth = 24; //размеры развернуть/свернуть/закрыть окно
+constexpr int kWinBtnHeight = 24;//размеры развернуть/свернуть/закрыть окно
 
 constexpr int kOuterMargin = 8;         // Ровно 8px по всем краям и между блоками
 constexpr int kPaneSpacing = 8;         // Ровно 8px между папками
@@ -29,8 +29,8 @@ constexpr int kDragThresholdPx = 24;
 constexpr int kGhostCardWidth = 240;
 constexpr int kGhostCardHeight = 175;
 constexpr int kGhostShadowPad = 20;
-constexpr int kReflowAnimMs = 180;      // Плавное заполнение оставшихся папок
-constexpr int kExpandAnimMs = 150;
+constexpr int kReflowAnimMs = 240;      // Плавное заполнение оставшихся папок
+constexpr int kExpandAnimMs = 200;      //кривая движения
 
 // Цвета Figma (#B8B8B8 @ 90%, #0F0F0F @ 21%, #D9D9D9 @ 50%, #000000 @ 35%)
 inline QColor windowUnderlayColor() { return QColor(15, 15, 15, 54); }      // #0F0F0F 21%
