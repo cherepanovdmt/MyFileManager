@@ -1372,6 +1372,8 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                         "QPushButton::menu-indicator { image: none; width: 0px; height: 0px; }"
                         );
                         QMenu *addBmMenu = new QMenu(addBookmarkBtn);
+                        addBmMenu->setWindowFlags(addBmMenu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+                        Theme::applyGlassMenuStyle(addBmMenu);
                         QAction *addFolderAct = addBmMenu->addAction("Добавить папку...");
                         QAction *addAppAct = addBmMenu->addAction("Добавить программу или файл...");
                         addBookmarkBtn->setMenu(addBmMenu);
@@ -1545,8 +1547,18 @@ MainWindow::MainWindow(const QString &initialPath, QWidget *parent)
                         };
                         searchNode(QModelIndex());
                         }
-                        bool MainWindow::eventFilter(QObject *watched, QEvent *event)
-                        {
+                            bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+                            {
+                                if (event->type() == QEvent::Polish) {
+                                        if (QMenu *menu = qobject_cast<QMenu*>(watched)) {
+                                            if (!menu->property("_glassStyled").toBool()) {
+                                                menu->setProperty("_glassStyled", true);
+                                                menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+                                                Theme::applyGlassMenuStyle(menu);
+                                            }
+                                        }
+                                    }
+
                             if (watched && watched->objectName() == "WorkspaceBox" && event->type() == QEvent::Resize) {
                                 QWidget *wb = qobject_cast<QWidget*>(watched);
                                 const int side = Theme::kOuterMargin; // 8px слева и справа

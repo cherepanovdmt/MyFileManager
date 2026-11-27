@@ -3,6 +3,7 @@
 
 #include <QColor>
 #include <QString>
+#include <QMenu>
 
 namespace Theme {
 
@@ -41,6 +42,52 @@ inline QColor watermarkColor()      { return QColor(0, 0, 0, 89); }         // #
 inline QString surfaceCss()         { return QStringLiteral("rgba(184, 184, 184, 230)"); }
 inline QString searchCss()          { return QStringLiteral("rgba(217, 217, 217, 128)"); }
 inline QString fontFamily()         { return QStringLiteral("'Segoe UI', 'Inter', 'Ubuntu', 'Noto Sans', sans-serif"); }
+inline QString contextMenuStyleSheet()
+{
+    return QString(
+        "QMenu {"
+        "  background-color: rgba(215, 215, 218, 225);"
+        "  border: 1px solid rgba(255, 255, 255, 110);"
+        "  border-radius: 12px;"
+        "  padding: 4px 0px;"
+        "  font-family: '%1';"
+        "  font-size: 12px;"
+        "  color: #1C1C1E;"
+        "}"
+        "QMenu::item {"
+        "  background-color: transparent;"
+        "  padding: 3px 14px 3px 10px;"
+        "  margin: 1px 5px;"
+        "  border-radius: 6px;"
+        "}"
+        "QMenu::item:selected {"
+        "  background-color: #0A84FF;"
+        "  color: #FFFFFF;"
+        "}"
+        "QMenu::item:disabled {"
+        "  color: rgba(28, 28, 30, 95);"
+        "}"
+        "QMenu::separator {"
+        "  height: 1px;"
+        "  background: rgba(15, 15, 15, 45);"
+        "  margin: 3px 10px;"
+        "}"
+        "QMenu::right-arrow {"
+        "  width: 7px;"
+        "  height: 7px;"
+        "  padding-right: 6px;"
+        "}"
+    ).arg(fontFamily());
+}
+
+
+inline void applyGlassMenuStyle(QMenu *menu)
+{
+    if (!menu) return;
+    menu->setAttribute(Qt::WA_TranslucentBackground, true);
+    menu->setStyleSheet(contextMenuStyleSheet());
+}
+
 
 } // namespace Theme
 

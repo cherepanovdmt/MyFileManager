@@ -78,6 +78,8 @@ int main(int argc, char *argv[])
     );
 
     MainWindow w;
+    a.installEventFilter(&w);
+
     w.show();
     int res = a.exec();
 

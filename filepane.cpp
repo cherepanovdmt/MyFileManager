@@ -738,18 +738,18 @@ void FilePane::performFileDrop(const QList<QUrl> &urls, const QString &targetDir
                     if (m_ghost) {
                         m_ghost->updateCursorPos(globalPos);
 
-                        // Проверяем, находится ли курсор над другим окном MainWindow для стыковки
-                        bool overTargetWindow = false;
-                        QWidget *myWin = window();
-                        for (QWidget *w : QApplication::topLevelWidgets()) {
-                            if (w != myWin && w->isVisible() && !w->isMinimized() && w->inherits("MainWindow")) {
-                                QRect winRect(w->mapToGlobal(QPoint(0, 0)), w->size());
-                                if (winRect.contains(globalPos)) {
-                                    overTargetWindow = true;
-                                    break;
-                                }
-                            }
-                        }
+//                        // Проверяем, находится ли курсор над другим окном MainWindow для стыковки
+//                        bool overTargetWindow = false;
+//                        QWidget *myWin = window();
+//                        for (QWidget *w : QApplication::topLevelWidgets()) {
+//                            if (w != myWin && w->isVisible() && !w->isMinimized() && w->inherits("MainWindow")) {
+//                                QRect winRect(w->mapToGlobal(QPoint(0, 0)), w->size());
+//                                if (winRect.contains(globalPos)) {
+//                                    overTargetWindow = true;
+//                                    break;
+//                                }
+//                            }
+//                        }
                     }
                 }
 
